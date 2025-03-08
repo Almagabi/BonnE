@@ -1,4 +1,4 @@
-name: Deploy BonnE AI
+name: Run h2oGPT on GitHub Actions
 
 on:
   push:
@@ -7,19 +7,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  run-h2ogpt:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-      - name: Set up Python
+
+      - name: Set Up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: "3.10"
 
       - name: Install Dependencies
         run: |
           python -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install h2ogpt autogen
+
+      - name: Run h2oGPT
+        run: |
+          source venv/bin/activate
+          python your_script.py
