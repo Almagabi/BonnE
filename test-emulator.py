@@ -59,8 +59,8 @@ try:
     tappable=[n for n in s if n.get("clickable")=="true" and n.get("text") and n.get("bounds")]
     if tappable:
         b=re.findall(r"\d+",tappable[0].get("bounds"))
-        a,c,d,e=map(int,b)
-        adb("shell","input","tap",str((a+d)//2),str((c+e)//2))
+        x1,y1,x2,y2=map(int,b)
+        adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
         time.sleep(1)
     app()
     press("STOP & SAVE")
