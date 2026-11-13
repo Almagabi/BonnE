@@ -9,7 +9,7 @@ def adb(*args, timeout=20):
     if p.returncode: raise RuntimeError(f"ADB {' '.join(args)}: {p.stderr}")
     return p.stdout
 def dump():
-    adb("shell","uiautomator","dump","/sdcard/window.xml",timeout=25)
+    adb("shell","uiautomator","dump","/sdcard/window.xml",timeout=90)
     xml=adb("exec-out","cat","/sdcard/window.xml")
     return ET.fromstring(xml)
 def nodes():
@@ -76,6 +76,6 @@ except Exception as exc:
     try:
         (out/"ui.txt").write_text("\n".join(texts()))
         (out/"logcat.txt").write_text(adb("logcat","-d","-t","1200"))
-    except Exception: pass
+    except Exception as logerror: print("Diagnostic collection:",repr(logerror),flush=True)
     print("EMULATOR TEST FAILED:",repr(exc),flush=True)
     raise
