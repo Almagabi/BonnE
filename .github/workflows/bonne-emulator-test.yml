@@ -5,6 +5,7 @@ on:
     branches: [bonne-screen-agent-android]
     paths:
       - 'android-screen-agent/**'
+      - 'test-emulator.py'
       - '.github/workflows/bonne-emulator-test.yml'
 jobs:
   emulator:
