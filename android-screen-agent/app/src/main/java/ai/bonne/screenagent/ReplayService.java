@@ -9,6 +9,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.content.Intent;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.os.Build;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONArray;
@@ -17,6 +23,8 @@ import java.util.List;
 
 public class ReplayService extends AccessibilityService {
     static ReplayService active;
+    private static final String CHANNEL_ID = "bonne_recording";
+    private static final int NOTIFICATION_ID = 1207;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private JSONArray recorded = new JSONArray();
     private boolean recording = false, replaying = false;
@@ -46,6 +54,45 @@ public class ReplayService extends AccessibilityService {
         lastTime = android.os.SystemClock.uptimeMillis();
         recording=true;
         lastText=null;
+        showRecordingNotification();
+    }
+
+    public void cancelRecording() {
+        recording=false;
+        clearRecordingNotification();
+        if(pendingText!=null) handler.removeCallbacks(pendingText);
+        pendingText=null;
+        lastText=null;
+        recorded=new JSONArray();
+        firstPackage="";
+        clearRecordingNotification();
+    }
+
+    private void showRecordingNotification() {
+        NotificationManager manager=(NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE);
+        if(Build.VERSION.SDK_INT>=26) {
+            NotificationChannel channel=new NotificationChannel(CHANNEL_ID,"BonnE recording",NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Indicates an active BonnE screen action recording");
+            manager.createNotificationChannel(channel);
+        }
+        Intent open=new Intent(this,MainActivity.class);
+        open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent openPi=PendingIntent.getActivity(this,1,open,PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent cancel=new Intent(this,RecordingCancelReceiver.class);
+        cancel.setAction("ai.bonne.screenagent.CANCEL_RECORDING");
+        PendingIntent cancelPi=PendingIntent.getBroadcast(this,2,cancel,PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder builder=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL_ID):new Notification.Builder(this);
+        Notification notice=builder.setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("● BonnE is recording")
+            .setContentText("Recording screen actions. Tap to return to BonnE.")
+            .setContentIntent(openPi)
+            .setOngoing(true)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel,"Cancel & discard",cancelPi)
+            .build();
+        try {manager.notify(NOTIFICATION_ID,notice);}catch(SecurityException ignored){}
+    }
+    private void clearRecordingNotification() {
+        ((NotificationManager)getSystemService(Context.NOTIFICATION_SERVICE)).cancel(NOTIFICATION_ID);
     }
 
     public JSONArray stopRecording() {
@@ -124,7 +171,8 @@ public class ReplayService extends AccessibilityService {
 
     public void stopReplay() {runId++;replaying=false;handler.removeCallbacksAndMessages(null);}
     public void play(JSONArray actions) {
-        recording=false;stopReplay();
+        if(recording) cancelRecording();
+        stopReplay();
         replaying=true;
         int id=runId;
         next(actions,0,id);
@@ -219,6 +267,6 @@ public class ReplayService extends AccessibilityService {
         dispatchGesture(new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(p,0,420)).build(),null,null);
     }
-    @Override public void onInterrupt(){recording=false;stopReplay();}
-    @Override public void onDestroy(){recording=false;stopReplay();if(active==this)active=null;super.onDestroy();}
+    @Override public void onInterrupt(){cancelRecording();stopReplay();}
+    @Override public void onDestroy(){cancelRecording();stopReplay();if(active==this)active=null;super.onDestroy();}
 }
