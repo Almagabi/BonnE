@@ -65,7 +65,6 @@ public class ReplayService extends AccessibilityService {
         lastText=null;
         recorded=new JSONArray();
         firstPackage="";
-        clearRecordingNotification();
     }
 
     private void showRecordingNotification() {
@@ -97,6 +96,7 @@ public class ReplayService extends AccessibilityService {
 
     public JSONArray stopRecording() {
         recording=false;
+        clearRecordingNotification();
         if(pendingText!=null) handler.removeCallbacks(pendingText);
         pendingText=null;
         if(lastText!=null) {append(lastText, true);lastText=null;}
@@ -104,6 +104,7 @@ public class ReplayService extends AccessibilityService {
     }
 
     public boolean isRecording() {return recording;}
+    public boolean isReplaying() {return replaying;}
     public int count() {return recorded.length();}
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
