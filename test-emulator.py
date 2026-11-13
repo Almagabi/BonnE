@@ -1,90 +1,117 @@
 #!/usr/bin/env python3
-"""Verify the ACTUAL UI in Android emulator, not merely the Gradle build."""
-import subprocess, time, re, os, xml.etree.ElementTree as ET, json
+"""True Android UI test. UiAutomator only runs BEFORE accessibility is enabled:
+invoking the CLI later destroys the BonnE accessibility service on this emulator."""
+import subprocess, time, re, json, xml.etree.ElementTree as ET
 from pathlib import Path
+
 out=Path("emulator-results")
 out.mkdir(exist_ok=True)
-def adb(*args, timeout=20):
-    p=subprocess.run(["adb",*args],text=True,capture_output=True,timeout=timeout)
-    if p.returncode: raise RuntimeError(f"ADB {' '.join(args)}: {p.stderr}")
+def adb(*args,timeout=50,check=True):
+    p=subprocess.run(["adb",*args],capture_output=True,text=True,timeout=timeout)
+    if check and p.returncode:
+        raise RuntimeError("adb "+str(args)+" return "+str(p.returncode)+": "+p.stderr[:400])
     return p.stdout
-def dump():
+
+def screenshot(tag):
+    p=subprocess.run(["adb","exec-out","screencap","-p"],capture_output=True,timeout=45)
+    (out/(tag+".png")).write_bytes(p.stdout)
+def capture():
+    try:(out/"logcat.txt").write_text(adb("logcat","-d","-t","6000"))
+    except Exception:pass
+    try:(out/"accessibility.txt").write_text(adb("shell","dumpsys","accessibility"))
+    except Exception:pass
+    try:(out/"notifications.txt").write_text(adb("shell","dumpsys","notification","--noredact"))
+    except Exception:pass
+
+def initial_controls():
+    # IMPORTANT: NEVER call uiautomator after the service is enabled.
     adb("shell","uiautomator","dump","/sdcard/window.xml",timeout=90)
-    xml=adb("exec-out","cat","/sdcard/window.xml")
-    return ET.fromstring(xml)
-def nodes():
-    return list(dump().iter("node"))
-def texts():
-    return [x.get("text","") for x in nodes() if x.get("text")]
-def press(phrase):
-    matches=[x for x in nodes() if phrase in x.get("text","")]
-    if not matches: raise AssertionError(f"BUTTON MISSING {phrase}: {texts()}")
-    # Prefer exact text
-    x=next((n for n in matches if n.get("text")==phrase),matches[0])
-    bounds=x.get("bounds","")
-    m=re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",bounds)
-    assert m, f"No bounds for {phrase}: {bounds}"
-    a,b,c,d=map(int,m.groups())
-    cx=(a+c)//2
-    cy=(b+d)//2
-    print(f"UI TAP: {phrase} at {cx},{cy}; bounds={bounds}",flush=True)
-    adb("shell","input","tap",str(cx),str(cy))
-    time.sleep(2)
-def verify(phrase):
-    visible=texts()
-    assert any(phrase in s for s in visible), f"Missing '{phrase}' in {visible}"
-    print("PASS:",phrase,flush=True)
-def screenshot(label):
-    with open(out/f"{label}.png","wb") as f:
-        p=subprocess.run(["adb","exec-out","screencap","-p"],capture_output=True)
-        f.write(p.stdout)
-def app():
-    adb("shell","am","start","-n","ai.bonne.screenagent/.MainActivity")
-    time.sleep(1.2)
-try:
-    verify("BonnE")
-    screenshot("01-launch")
-    press("START RECORDING")
-    verify("🔴 RECORDING")
-    screenshot("02-recording")
-    notification=adb("shell","dumpsys","notification","--noredact")
-    (out/"notification.txt").write_text(notification)
-    print("NOTIFICATION FOUND?",("ai.bonne.screenagent" in notification),flush=True)
-    (out/"notifications.txt").write_text(notification)
-    assert "BonnE is recording" in notification, "Recording notification not posted"
-    print("PASS: recording notification",flush=True)
-    press("CANCEL & DISCARD")
-    verify("Ready  •  Not recording")
-    screenshot("03-canceled")
-    print("PASS: cancel recording",flush=True)
-    press("START RECORDING")
-    adb("shell","am","start","-a","android.settings.SETTINGS")
-    time.sleep(2)
-    # Settings UI creates accessibility events. Tap another accessible element if available.
-    s=nodes()
-    tappable=[n for n in s if n.get("clickable")=="true" and n.get("text") and n.get("bounds")]
-    if tappable:
-        b=re.findall(r"\d+",tappable[0].get("bounds"))
-        x1,y1,x2,y2=map(int,b)
-        adb("shell","input","tap",str((x1+x2)//2),str((y1+y2)//2))
+    root=ET.fromstring(adb("exec-out","cat","/sdcard/window.xml",timeout=45))
+    found={}
+    keys=["START RECORDING","STOP & SAVE","CANCEL & DISCARD","REPLAY SAVED TASK","STOP PLAYBACK","Enable Accessibility"]
+    for node in root.iter("node"):
+        title=node.attrib.get("text","")
+        rect=node.attrib.get("bounds","")
+        m=re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",rect)
+        for key in keys:
+            if key in title and m:
+                x1,y1,x2,y2=map(int,m.groups())
+                found[key]=((x1+x2)//2,(y1+y2)//2)
+    missing=set(keys)-set(found)
+    if missing: raise AssertionError("Buttons missing from UI: "+str(missing))
+    print("UI button coordinates:",found,flush=True)
+    return found
+
+def tap(controls,name):
+    x,y=controls[name]
+    print("TAP",name,x,y,flush=True)
+    adb("shell","input","tap",str(x),str(y))
+    time.sleep(1.1)
+
+def enable_service():
+    pkg="ai.bonne.screenagent"
+    svc=pkg+"/"+pkg+".ReplayService"
+    adb("shell","cmd","appops","set",pkg,"ACCESS_RESTRICTED_SETTINGS","allow")
+    cur=adb("shell","settings","get","secure","enabled_accessibility_services").strip()
+    if cur=="null":cur=""
+    new=cur if svc in cur.split(":") else ((cur+":") if cur else "")+svc
+    adb("shell","settings","put","secure","enabled_accessibility_services",new)
+    adb("shell","settings","put","secure","accessibility_enabled","1")
+    connected=False
+    for i in range(12):
+        state=adb("shell","dumpsys","accessibility")
+        if "Bound services:{Service[label=BonnE" in state:
+            connected=True;break
         time.sleep(1)
-    app()
-    press("STOP & SAVE")
-    verify("Saved task:")
-    screenshot("04-saved")
-    press("REPLAY SAVED TASK")
-    time.sleep(3)
-    screenshot("05-replay")
-    print("PASS: replay button (did not crash)",flush=True)
-    print("ALL EMULATOR UI TESTS PASSED",flush=True)
-except Exception as exc:
+    assert connected,"Accessibility service did not bind"
+    time.sleep(1)
+    print("PASS Accessibility bound",flush=True)
+
+def notification_active():
+    data=adb("shell","dumpsys","notification","--noredact")
+    (out/"notification-check.txt").write_text(data)
+    return "BonnE is recording" in data
+
+try:
+    screenshot("01-app-open")
+    controls=initial_controls()
+    enable_service()
+    screenshot("02-service-enabled")
+    tap(controls,"START RECORDING")
+    time.sleep(2)
+    screenshot("03-recording")
+    assert notification_active(),"Start did not post active recording notification"
+    print("PASS Start recording + persistent notification",flush=True)
+    tap(controls,"CANCEL & DISCARD")
+    time.sleep(1)
+    screenshot("04-discarded")
+    assert not notification_active(),"Cancel did not remove recording notification"
+    print("PASS Cancel & discard",flush=True)
+    tap(controls,"START RECORDING")
+    assert notification_active(),"Second recording did not start"
+    adb("shell","am","start","-a","android.settings.SETTINGS")
+    time.sleep(2.5)
+    adb("shell","am","start","-n","ai.bonne.screenagent/.MainActivity")
+    time.sleep(2)
+    tap(controls,"STOP & SAVE")
+    time.sleep(1)
+    assert not notification_active(),"Stop/save did not remove recording notification"
+    prefs=adb("shell","run-as","ai.bonne.screenagent","cat","shared_prefs/MainActivity.xml",check=False)
+    (out/"saved-prefs.txt").write_text(prefs)
+    assert "workflow" in prefs and "launch" in prefs, "Save did not persist recorded Android events: "+prefs[:250]
+    print("PASS Stop & Save stores workflow",flush=True)
+    screenshot("05-saved")
+    tap(controls,"REPLAY SAVED TASK")
+    time.sleep(4)
+    screenshot("06-replay")
+    state=adb("shell","dumpsys","activity","activities")
+    (out/"replay-activities.txt").write_text(state)
+    assert re.search(r"(?:ResumedActivity|topResumedActivity|mResumedActivity).*com\.android\.settings",state,re.I), "Replay did not open the recorded Settings app"
+    print("PASS Replay opened recorded target app",flush=True)
+    print("ALL ANDROID EMULATOR FUNCTIONAL TESTS PASSED",flush=True)
+except Exception as error:
     screenshot("FAILED")
-    try: (out/"notifications-failed.txt").write_text(adb("shell","dumpsys","notification","--noredact",timeout=60))
-    except Exception: pass
-    (out/"failure.txt").write_text(repr(exc))
-    try:
-        (out/"ui.txt").write_text("\n".join(texts()))
-        (out/"logcat.txt").write_text(adb("logcat","-d","-t","6000"))
-    except Exception as logerror: print("Diagnostic collection:",repr(logerror),flush=True)
-    print("EMULATOR TEST FAILED:",repr(exc),flush=True)
+    capture()
+    (out/"failure.txt").write_text(repr(error))
+    print("EMULATOR TEST FAILED:",repr(error),flush=True)
     raise
