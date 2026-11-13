@@ -163,14 +163,22 @@ public class MainActivity extends Activity {
             hasSaved=count>0;
         } catch(Exception ignored){}
         final boolean savedTask=hasSaved;
-        accessButton.setVisibility(connected?View.GONE:View.VISIBLE);
-        startButton.setEnabled(connected && !recording && !playing);
-        startButton.setAlpha(startButton.isEnabled()?1f:0.4f);
-        saveButton.setVisibility(recording?View.VISIBLE:View.GONE);
-        cancelButton.setVisibility(recording?View.VISIBLE:View.GONE);
-        replayButton.setEnabled(connected && savedTask && !recording && !playing);
-        replayButton.setAlpha(replayButton.isEnabled()?1f:0.4f);
-        stopReplayButton.setVisibility(playing?View.VISIBLE:View.GONE);
+        // Keep every button at a fixed position. Accessibility connection changes
+        // must never shift the layout during a tap or hide Save/Discard.
+        accessButton.setVisibility(View.VISIBLE);
+        startButton.setVisibility(View.VISIBLE);
+        saveButton.setVisibility(View.VISIBLE);
+        cancelButton.setVisibility(View.VISIBLE);
+        replayButton.setVisibility(View.VISIBLE);
+        stopReplayButton.setVisibility(View.VISIBLE);
+        // Always keep controls tappable so their handlers can explain missing
+        // permission, no active recording, or no saved task.
+        accessButton.setEnabled(true);
+        startButton.setEnabled(true);
+        saveButton.setEnabled(true);
+        cancelButton.setEnabled(true);
+        replayButton.setEnabled(true);
+        stopReplayButton.setEnabled(true);
         saved.setText(savedTask?"Saved task: "+count+" actions":"No saved task yet");
         if(recording) status.setText("🔴 RECORDING  •  "+service.count()+" actions\nSwitch apps to demonstrate your task.");
         else if(playing) status.setText("▶ PLAYING SAVED TASK");
