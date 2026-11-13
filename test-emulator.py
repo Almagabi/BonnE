@@ -25,6 +25,7 @@ def press(phrase):
     m=re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",bounds)
     assert m, f"No bounds for {phrase}: {bounds}"
     a,b,c,d=map(int,m.groups())
+    print("TAPPING",phrase,"AT",(a+c)//2,(b+d)//2,"BOUNDS",bounds,flush=True)
     adb("shell","input","tap",str((a+c)//2),str((b+d)//2))
     time.sleep(1)
 def verify(phrase):
@@ -42,9 +43,11 @@ try:
     verify("BonnE")
     screenshot("01-launch")
     press("START RECORDING")
-    verify("RECORDING")
+    verify("🔴 RECORDING")
     screenshot("02-recording")
     notification=adb("shell","dumpsys","notification","--noredact")
+    (out/"notification.txt").write_text(notification)
+    print("NOTIFICATION FOUND?",("ai.bonne.screenagent" in notification),flush=True)
     assert "BonnE is recording" in notification, "Recording notification not posted"
     print("PASS: recording notification",flush=True)
     press("CANCEL & DISCARD")
@@ -73,9 +76,10 @@ try:
     print("ALL EMULATOR UI TESTS PASSED",flush=True)
 except Exception as exc:
     screenshot("FAILED")
+    (out/"failure.txt").write_text(repr(exc))
     try:
         (out/"ui.txt").write_text("\n".join(texts()))
-        (out/"logcat.txt").write_text(adb("logcat","-d","-t","1200"))
+        (out/"logcat.txt").write_text(adb("logcat","-d","-t","6000"))
     except Exception as logerror: print("Diagnostic collection:",repr(logerror),flush=True)
     print("EMULATOR TEST FAILED:",repr(exc),flush=True)
     raise
