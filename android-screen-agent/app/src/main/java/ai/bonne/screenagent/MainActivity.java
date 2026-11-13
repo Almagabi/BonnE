@@ -20,6 +20,7 @@ import org.json.JSONArray;
 
 public class MainActivity extends Activity {
     private TextView status;
+    private Boolean lastConnected=null;
     private TextView saved;
     private Button startButton, saveButton, cancelButton, replayButton, stopReplayButton, accessButton;
     private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
         gap(content, 18);
         startButton=button(content,"●  START RECORDING", Color.rgb(187,37,72),()->{
             ReplayService service=ReplayService.active;
+            android.util.Log.i("BonnE", "START BUTTON pid="+android.os.Process.myPid()+" active="+(service==null?"null":System.identityHashCode(service)));
             if(service==null){showMessage("Enable Accessibility first.");return;}
             service.startRecording();
             showMessage("Recording started. Open another app and demonstrate your task.");
@@ -153,6 +155,10 @@ public class MainActivity extends Activity {
         if(status==null)return;
         ReplayService service=ReplayService.active;
         boolean connected=service!=null;
+        if(lastConnected==null || lastConnected!=connected) {
+            android.util.Log.i("BonnE", "UI CONNECTED="+connected+" pid="+android.os.Process.myPid());
+            lastConnected=connected;
+        }
         boolean recording=connected && service.isRecording();
         boolean playing=connected && service.isReplaying();
         boolean hasSaved=false;
