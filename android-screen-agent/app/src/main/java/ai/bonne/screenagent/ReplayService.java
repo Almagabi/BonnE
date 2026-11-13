@@ -38,6 +38,7 @@ public class ReplayService extends AccessibilityService {
     @Override public void onServiceConnected() {
         super.onServiceConnected();
         active=this;
+        android.util.Log.i("BonnE", "ReplayService CONNECTED pid="+android.os.Process.myPid()+" active="+System.identityHashCode(active));
         AccessibilityServiceInfo info = getServiceInfo();
         info.eventTypes = AccessibilityEvent.TYPE_VIEW_CLICKED | AccessibilityEvent.TYPE_VIEW_LONG_CLICKED |
             AccessibilityEvent.TYPE_VIEW_SCROLLED | AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED |
@@ -269,5 +270,5 @@ public class ReplayService extends AccessibilityService {
             .addStroke(new GestureDescription.StrokeDescription(p,0,420)).build(),null,null);
     }
     @Override public void onInterrupt(){cancelRecording();stopReplay();}
-    @Override public void onDestroy(){cancelRecording();stopReplay();if(active==this)active=null;super.onDestroy();}
+    @Override public void onDestroy(){android.util.Log.i("BonnE","ReplayService DESTROY pid="+android.os.Process.myPid());cancelRecording();stopReplay();if(active==this)active=null;super.onDestroy();}
 }
