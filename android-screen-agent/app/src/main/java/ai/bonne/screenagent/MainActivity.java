@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
                 if(code<200 || code>=300)throw new Exception("Model HTTP "+code+": "+result.substring(0,Math.min(160,result.length())));
                 JSONObject response=new JSONObject(result);
                 String raw=response.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content").trim();
-                if(raw.startsWith("```")) { raw=raw.replaceAll("(?s)^\x60{3}(?:json)?\\s*|\\s*\x60{3}$","").trim(); }
+                if(raw.startsWith("```")) { raw=raw.substring(3).replaceFirst("^json", "").replaceFirst("```$", "").trim(); }
                 JSONArray parsed=new JSONArray(raw);
                 if(parsed.length()>100)throw new Exception("Too many actions");
                 String pretty=parsed.toString(2);
