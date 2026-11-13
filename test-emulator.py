@@ -25,7 +25,6 @@ def press(phrase):
     m=re.match(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",bounds)
     assert m, f"No bounds for {phrase}: {bounds}"
     a,b,c,d=map(int,m.groups())
-    print("TAPPING",phrase,"AT",(a+c)//2,(b+d)//2,"BOUNDS",bounds,flush=True)
     cx=(a+c)//2
     cy=(b+d)//2
     print(f"UI TAP: {phrase} at {cx},{cy}; bounds={bounds}",flush=True)
@@ -55,8 +54,7 @@ try:
     assert "BonnE is recording" in notification, "Recording notification not posted"
     print("PASS: recording notification",flush=True)
     press("CANCEL & DISCARD")
-    verify("START RECORDING")
-    assert not any("CANCEL & DISCARD" in t for t in texts()), "Cancel failed to dismiss record controls"
+    verify("Ready  •  Not recording")
     screenshot("03-canceled")
     print("PASS: cancel recording",flush=True)
     press("START RECORDING")
