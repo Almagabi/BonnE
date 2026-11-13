@@ -1,8 +1,12 @@
-# BonnE Screen Agent (Android)
-Native Android application. Import an MP4 demonstration, extract up to six frames, send them to an OpenAI-compatible vision endpoint you choose, edit the returned JSON workflow, and replay it on device using Android AccessibilityService.
+# BonnE • Teach by Doing (Offline Android)
+Native Android app with Accessibility-based action recording and replay. **No keys, no model, no account.**
 
-**Install:** GitHub Actions > BonnE Android APK > latest successful run > Artifacts > BonnE-Screen-Agent-APK. Download ZIP and extract APK.
+1. Install the debug APK from the GitHub Actions artifact.
+2. Open Android settings using the Enable Accessibility button; switch on BonnE.
+3. Press START RECORDING, switch to the target application and perform the task.
+4. Return to BonnE and press STOP AND SAVE.
+5. Press REPLAY. BonnE opens the recorded app (if it has a launchable activity), then repeats the captured steps.
 
-**How:** Grant Accessibility in Android Settings. Choose a screen recording from your phone. Enter an OpenAI-compatible chat completions URL, model, and API key. Analyze; review and correct action coordinates; Save; Start. Stop is available from the app; to interrupt immediately disable accessibility service from Settings. Images are sent to the endpoint you enter only when you press Analyze.
+Captures Accessibility click, long click, text change (non-password), and scroll events. Stores a JSON action sequence on device, with coordinates and view IDs where available. Prefers matching view IDs for replay. The user can edit saved JSON. Recording and replaying are local and can be stopped at any time.
 
-**Limitations:** Video images alone do not reliably reveal every tap or text input, so review the proposed JSON. No background monitoring, no protected screen bypass, no automated financial transactions. Android screen recording is performed with your phone's built-in recorder; the app imports the MP4. No computer required for app operation. 
+**Limitations:** This is not visual learning from MP4; it learns actions live from accessibility event observations. Android does not provide arbitrary touch coordinates, canvas gestures, protected app UIs, or reliable semantics for inaccessible custom elements. Password fields are deliberately excluded. Android may require extra settings permission for sideloaded accessibility services. A physical phone test is needed to validate compatibility.
