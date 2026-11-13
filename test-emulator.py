@@ -26,8 +26,11 @@ def press(phrase):
     assert m, f"No bounds for {phrase}: {bounds}"
     a,b,c,d=map(int,m.groups())
     print("TAPPING",phrase,"AT",(a+c)//2,(b+d)//2,"BOUNDS",bounds,flush=True)
-    adb("shell","input","tap",str((a+c)//2),str((b+d)//2))
-    time.sleep(1)
+    cx=(a+c)//2
+    cy=(b+d)//2
+    print(f"UI TAP: {phrase} at {cx},{cy}; bounds={bounds}",flush=True)
+    adb("shell","input","tap",str(cx),str(cy))
+    time.sleep(2)
 def verify(phrase):
     visible=texts()
     assert any(phrase in s for s in visible), f"Missing '{phrase}' in {visible}"
@@ -48,10 +51,12 @@ try:
     notification=adb("shell","dumpsys","notification","--noredact")
     (out/"notification.txt").write_text(notification)
     print("NOTIFICATION FOUND?",("ai.bonne.screenagent" in notification),flush=True)
+    (out/"notifications.txt").write_text(notification)
     assert "BonnE is recording" in notification, "Recording notification not posted"
     print("PASS: recording notification",flush=True)
     press("CANCEL & DISCARD")
-    verify("Not recording")
+    verify("START RECORDING")
+    assert not any("CANCEL & DISCARD" in t for t in texts()), "Cancel failed to dismiss record controls"
     screenshot("03-canceled")
     print("PASS: cancel recording",flush=True)
     press("START RECORDING")
@@ -76,6 +81,8 @@ try:
     print("ALL EMULATOR UI TESTS PASSED",flush=True)
 except Exception as exc:
     screenshot("FAILED")
+    try: (out/"notifications-failed.txt").write_text(adb("shell","dumpsys","notification","--noredact",timeout=60))
+    except Exception: pass
     (out/"failure.txt").write_text(repr(exc))
     try:
         (out/"ui.txt").write_text("\n".join(texts()))
