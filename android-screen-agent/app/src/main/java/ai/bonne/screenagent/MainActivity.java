@@ -2,6 +2,9 @@ package ai.bonne.screenagent;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Build;
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.content.Intent;
 import android.provider.Settings;
 import android.view.View;
@@ -24,6 +27,7 @@ public class MainActivity extends Activity {
     };
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
+        if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},55);
         LinearLayout box=new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);box.setPadding(24,25,24,24);
         ScrollView scroll=new ScrollView(this);scroll.addView(box);setContentView(scroll);
@@ -50,6 +54,14 @@ public class MainActivity extends Activity {
             workflow.setText(serialized);
             getPreferences(0).edit().putString("workflow",serialized).apply();
             say("Saved "+actions.length()+" steps. Ready to replay.");
+        });
+        button(box,"✕ CANCEL RECORDING (DISCARD)",v->{
+            ReplayService service=ReplayService.active;
+            if(service==null||!service.isRecording()){say("Nothing to cancel.");return;}
+            service.cancelRecording();
+            handler.removeCallbacks(update);
+            recordingUi=false;
+            say("Recording discarded. Previously saved workflow is unchanged.");
         });
         button(box,"▶ REPLAY",v->{
             ReplayService s=ReplayService.active;
@@ -93,5 +105,6 @@ public class MainActivity extends Activity {
         Button b=new Button(this);b.setText(name);b.setOnClickListener(click);box.addView(b);
     }
     private void say(String m){status.setText(m);}
+    @Override protected void onResume(){super.onResume(); if(status!=null && (ReplayService.active==null || !ReplayService.active.isRecording())) {handler.removeCallbacks(update);} }
     @Override protected void onDestroy(){handler.removeCallbacks(update);super.onDestroy();}
 }
