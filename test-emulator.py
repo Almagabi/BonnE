@@ -124,11 +124,11 @@ try:
     adb("shell","input","swipe","520","1610","520","375","450")
     time.sleep(1)
     after=ui()
-    taskControls=controls(after,["RUN","LOOP"])
+    taskControls=controls(after,["▶ RUN","↻ LOOP"])
     print("Saved task controls",taskControls,flush=True)
-    assert "RUN" in taskControls and "LOOP" in taskControls,"Saved task has no Run/Loop controls"
+    assert "▶ RUN" in taskControls and "↻ LOOP" in taskControls,"Saved task has no Run/Loop controls"
     enable()
-    tap(taskControls["RUN"],"Run saved automation")
+    tap(taskControls["▶ RUN"],"Run saved automation")
     time.sleep(13)
     log=logcat()
     (out/"replay-logcat.txt").write_text(log)
@@ -141,7 +141,7 @@ try:
     return_app()
     adb("shell","input","swipe","520","1610","520","375","450")
     time.sleep(1)
-    tap(taskControls["LOOP"],"Loop")
+    tap(taskControls["↻ LOOP"],"Loop")
     time.sleep(1.0)
     # Inspect dialog only after a controlled service re-enable.
     dlg=ui()
