@@ -22,6 +22,8 @@ import org.json.JSONObject;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import android.text.TextUtils;
 
@@ -46,6 +48,7 @@ public class ReplayService extends AccessibilityService {
     private int profileCount=0, noNewPages=0;
     private String smartListPackage="";
     private String lastProfileKey="";
+    private final Map<String,JSONObject> visibleClickTargets=new HashMap<>();
 
     @Override public void onServiceConnected() {
         super.onServiceConnected();
@@ -53,6 +56,7 @@ public class ReplayService extends AccessibilityService {
         AccessibilityServiceInfo info=getServiceInfo();
         info.eventTypes=AccessibilityEvent.TYPE_VIEW_CLICKED|AccessibilityEvent.TYPE_VIEW_LONG_CLICKED|
                 AccessibilityEvent.TYPE_VIEW_SCROLLED|AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED|
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED|
                 AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED;
         info.flags|=AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
         info.notificationTimeout=60;
@@ -72,6 +76,7 @@ public class ReplayService extends AccessibilityService {
         recorded=new JSONArray();
         firstPackage="";
         latestText=null;
+        visibleClickTargets.clear();
         lastTime=SystemClock.uptimeMillis();
         recording=true;
         WorkflowStore.saveDraft(this,recorded);
@@ -121,9 +126,14 @@ public class ReplayService extends AccessibilityService {
             JSONObject launch=new JSONObject();
             try{launch.put("type","launch").put("package",pkg);}catch(Exception ignored){}
             append(launch);
+            snapshotClickTargets(pkg);
             return;
         }
-        if(kind==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)return;
+        if(kind==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+           kind==AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            snapshotClickTargets(pkg);
+            return;
+        }
         if(firstPackage.isEmpty() && isLauncher(pkg))return;
         if(firstPackage.isEmpty()){
             firstPackage=pkg;
@@ -132,7 +142,10 @@ public class ReplayService extends AccessibilityService {
             append(launch);
         }
         AccessibilityNodeInfo node=event.getSource();
-        if(node==null)return;
+        if(node==null) {
+            if(kind==AccessibilityEvent.TYPE_VIEW_CLICKED)recoverClickWithoutSource(event,pkg);
+            return;
+        }
         try{
             if(kind==AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED){
                 if(node.isPassword() || !node.isEditable())return;
@@ -156,8 +169,51 @@ public class ReplayService extends AccessibilityService {
             }else return;
             flushText();
             append(step);
-        }catch(Exception ignored){}
+        }catch(Exception ignored) {
+            if(kind==AccessibilityEvent.TYPE_VIEW_CLICKED)recoverClickWithoutSource(event,pkg);
+        }
         finally{node.recycle();}
+    }
+
+    // Buttons may be destroyed by navigation before AccessibilityEvent.getSource()
+    // can resolve them. Store their accessible label and bounds BEFORE navigation.
+    private void snapshotClickTargets(String pkg){
+        if(!recording || visibleClickTargets.size()>180)return;
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null)return;
+        CharSequence activePkg=root.getPackageName();
+        if(activePkg==null || !pkg.equals(activePkg.toString()))return;
+        snapshotNodes(root,pkg,0);
+    }
+    private void snapshotNodes(AccessibilityNodeInfo node,String pkg,int depth){
+        if(node==null || depth>18 || visibleClickTargets.size()>180)return;
+        if(node.isClickable() && !node.isPassword()){
+            try{
+                JSONObject a=base(node,pkg);
+                String key=sampleIdentity(a);
+                if(!key.isEmpty())visibleClickTargets.put(key,a);
+            }catch(Exception ignored){}
+        }
+        for(int i=0;i<node.getChildCount();i++)
+            snapshotNodes(node.getChild(i),pkg,depth+1);
+    }
+    private void recoverClickWithoutSource(AccessibilityEvent event,String pkg){
+        for(CharSequence text:event.getText()){
+            if(text==null)continue;
+            String key=text.toString().trim().toLowerCase(java.util.Locale.ROOT);
+            JSONObject before=visibleClickTargets.get(key);
+            if(before!=null && pkg.equals(before.optString("package"))){
+                try{
+                    JSONObject step=new JSONObject(before.toString());
+                    step.put("type","tap");
+                    flushText();
+                    append(step);
+                    android.util.Log.i("BonnE","Recovered navigation tap "+key);
+                }catch(Exception ignored){}
+                return;
+            }
+        }
+        android.util.Log.w("BonnE","Unresolved click without source in "+pkg);
     }
     private boolean isLauncher(String pkg) {
         return pkg.contains("launcher") || pkg.equals("com.google.android.apps.nexuslauncher");
