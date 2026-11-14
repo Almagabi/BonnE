@@ -20,6 +20,10 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import android.text.TextUtils;
 
 public class ReplayService extends AccessibilityService {
     public static ReplayService active;
@@ -35,6 +39,13 @@ public class ReplayService extends AccessibilityService {
     private Runnable pendingText;
     private JSONObject latestText;
     private String lastResult="Idle";
+    private boolean smartMode=false;
+    private JSONArray profileTemplate;
+    private JSONObject profileExample;
+    private final Set<String> processedProfiles=new HashSet<>();
+    private int profileCount=0, noNewPages=0;
+    private String smartListPackage="";
+    private String lastProfileKey="";
 
     @Override public void onServiceConnected() {
         super.onServiceConnected();
@@ -52,6 +63,8 @@ public class ReplayService extends AccessibilityService {
     public boolean isReplaying(){return replaying;}
     public int count(){return recorded.length();}
     public int executed(){return executed;}
+    public int profilesProcessed(){return profileCount;}
+    public boolean isSmartLoop(){return replaying && smartMode;}
     public String lastResult(){return lastResult;}
 
     public void startRecording() {
@@ -155,6 +168,7 @@ public class ReplayService extends AccessibilityService {
         int h=Math.max(1,getResources().getDisplayMetrics().heightPixels);
         JSONObject a=new JSONObject();
         a.put("package",pkg);
+        a.put("class_name",String.valueOf(node.getClassName()));
         a.put("x",Math.max(0,Math.min(1000,b.centerX()*1000/w)));
         a.put("y",Math.max(0,Math.min(1000,b.centerY()*1000/h)));
         if(node.getViewIdResourceName()!=null)a.put("view_id",node.getViewIdResourceName());
@@ -180,6 +194,7 @@ public class ReplayService extends AccessibilityService {
     }
 
     public void stopReplay(){
+        smartMode=false;
         runId++;
         replaying=false;
         handler.removeCallbacksAndMessages(null);
@@ -193,6 +208,7 @@ public class ReplayService extends AccessibilityService {
         if(steps==null || steps.length()==0 || steps.length()>200)return;
         loops=Math.max(0,Math.min(999,repeats));
         round=0;executed=0;replaying=true;
+        smartMode=false;
         lastResult="Playing";
         showNotification(false);
         int id=runId;
@@ -223,6 +239,218 @@ public class ReplayService extends AccessibilityService {
                 action.optString("type").equals("launch")?1100:450));
         },delay);
     }
+
+    // Teach a profile once, then choose DISTINCT results from the live list.
+    // Record starting on the results page: first tap opens a profile; later taps
+    // are the profile actions. Return to the results page, then Stop & Save.
+    // This mode intentionally NEVER loops over the first tap's coordinates.
+    public boolean startSmartProfiles(JSONArray taught) {
+        if(taught==null || taught.length()<2 || recording)return false;
+        int opener=-1;
+        for(int i=0;i<taught.length();i++){
+            JSONObject a=taught.optJSONObject(i);
+            if(a!=null && a.optString("type").equals("tap")){
+                opener=i;break;
+            }
+        }
+        if(opener<0 || opener>=taught.length()-1)return false;
+        JSONObject opening=taught.optJSONObject(opener);
+        JSONArray actions=new JSONArray();
+        for(int i=opener+1;i<taught.length();i++){
+            JSONObject action=taught.optJSONObject(i);
+            if(action==null)continue;
+            String kind=action.optString("type");
+            if(kind.equals("launch"))continue;
+            // Return to list is done by the agent: avoid duplicating it.
+            if(kind.equals("back") || kind.equals("home"))continue;
+            actions.put(action);
+        }
+        if(actions.length()==0)return false;
+        stopReplay();
+        profileExample=opening;
+        profileTemplate=actions;
+        smartListPackage=opening.optString("package");
+        processedProfiles.clear();
+        String firstKey=sampleIdentity(opening);
+        if(!firstKey.isEmpty())processedProfiles.add(firstKey);
+        noNewPages=0;profileCount=0;executed=0;
+        smartMode=true;replaying=true;
+        int id=runId;
+        lastResult="Smart loop starting. Return to the results screen.";
+        showNotification(false);
+        // Five seconds to switch back to the search-results application.
+        handler.postDelayed(()->searchNextProfile(id),5500);
+        return true;
+    }
+
+    private String sampleIdentity(JSONObject a){
+        String s=a.optString("text","").trim();
+        if(s.isEmpty())s=a.optString("label","").trim();
+        return s.isEmpty()?"":s.toLowerCase(java.util.Locale.ROOT);
+    }
+    private boolean canContinue(int id){return id==runId && replaying && smartMode;}
+
+    private static class Candidate{
+        final AccessibilityNodeInfo node;
+        final String key;
+        final int x,y;
+        Candidate(AccessibilityNodeInfo n,String k,int xx,int yy){
+            node=n;key=k;x=xx;y=yy;
+        }
+    }
+    private String uniqueText(AccessibilityNodeInfo node,int depth){
+        if(node==null || depth>3)return "";
+        CharSequence t=node.getText(), d=node.getContentDescription();
+        if(t!=null && !t.toString().trim().isEmpty() && !node.isPassword())
+            return t.toString().trim();
+        if(d!=null && !d.toString().trim().isEmpty())
+            return d.toString().trim();
+        for(int i=0;i<Math.min(node.getChildCount(),5);i++){
+            String result=uniqueText(node.getChild(i),depth+1);
+            if(!result.isEmpty())return result;
+        }
+        return "";
+    }
+    private void collectCandidates(AccessibilityNodeInfo node,JSONObject example,
+                                   List<Candidate> output,int depth) {
+        if(node==null || depth>22 || output.size()>160)return;
+        Rect b=new Rect();
+        node.getBoundsInScreen(b);
+        int w=Math.max(1,getResources().getDisplayMetrics().widthPixels),
+            h=Math.max(1,getResources().getDisplayMetrics().heightPixels);
+        String wantedId=example.optString("view_id","");
+        String wantedClass=example.optString("class_name","");
+        String nodeId=node.getViewIdResourceName();
+        String nodeClass=String.valueOf(node.getClassName());
+        int expectedX=example.optInt("x",500)*w/1000;
+        boolean idMatch=!wantedId.isEmpty() && wantedId.equals(nodeId);
+        boolean classMatch=!wantedClass.isEmpty() && wantedClass.equals(nodeClass) &&
+            node.isClickable() && Math.abs(b.centerX()-expectedX)<w*0.28f;
+        if(b.width()>15 && b.height()>15 && (idMatch || classMatch)) {
+            String identity=uniqueText(node,0).toLowerCase(java.util.Locale.ROOT);
+            if(!identity.isEmpty() && !identity.equals(getPackageName()) &&
+                    !identity.equals("back") && !identity.equals("search")) {
+                output.add(new Candidate(node,identity,b.centerX(),b.centerY()));
+            }
+        }
+        for(int i=0;i<node.getChildCount();i++){
+            AccessibilityNodeInfo child=node.getChild(i);
+            collectCandidates(child,example,output,depth+1);
+        }
+    }
+    private AccessibilityNodeInfo firstScrollable(AccessibilityNodeInfo node,int depth){
+        if(node==null || depth>22)return null;
+        if(node.isScrollable())return node;
+        for(int i=0;i<node.getChildCount();i++){
+            AccessibilityNodeInfo result=firstScrollable(node.getChild(i),depth+1);
+            if(result!=null)return result;
+        }
+        return null;
+    }
+    private void searchNextProfile(int id){
+        if(!canContinue(id))return;
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null){
+            finishSmart("Cannot read result page. Reopen the results and retry.");
+            return;
+        }
+        CharSequence currentPkg=root.getPackageName();
+        if(currentPkg==null || !smartListPackage.equals(currentPkg.toString())){
+            finishSmart("Not on the recorded search results app. Stopped safely.");
+            return;
+        }
+        List<Candidate> candidates=new ArrayList<>();
+        collectCandidates(root,profileExample,candidates,0);
+        // Candidates are in reading order; skip the taught profile and anything processed.
+        java.util.Collections.sort(candidates,(a,b)->{
+            int y=Integer.compare(a.y,b.y);
+            return y!=0?y:Integer.compare(a.x,b.x);
+        });
+        Candidate selected=null;
+        for(Candidate c:candidates){
+            if(!processedProfiles.contains(c.key)){
+                selected=c;break;
+            }
+        }
+        if(selected==null){
+            AccessibilityNodeInfo list=firstScrollable(root,0);
+            boolean scrolled=list!=null && list.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+            if(scrolled && noNewPages<4){
+                noNewPages++;
+                lastResult="Checking next results...";
+                handler.postDelayed(()->searchNextProfile(id),1100);
+            }else finishSmart("No more distinct accessible profiles. "+profileCount+" processed.");
+            return;
+        }
+        noNewPages=0;
+        Candidate target=selected;
+        processedProfiles.add(target.key);
+        lastProfileKey=target.key;
+        boolean clicked=clickAncestor(target.node,AccessibilityNodeInfo.ACTION_CLICK);
+        if(!clicked){
+            int w=Math.max(1,getResources().getDisplayMetrics().widthPixels);
+            int h=Math.max(1,getResources().getDisplayMetrics().heightPixels);
+            JSONObject point=new JSONObject();
+            try{
+                point.put("x",target.x*1000/w);
+                point.put("y",target.y*1000/h);
+                tap(point,75);
+                clicked=true;
+            }catch(Exception ignored){}
+        }
+        if(!clicked){
+            finishSmart("Couldn't open next profile. Stopped.");
+            return;
+        }
+        executed++;
+        lastResult="Opened "+target.key+" ("+(profileCount+1)+")";
+        showNotification(false);
+        handler.postDelayed(()->executeProfileSteps(0,id),1400);
+    }
+    private void executeProfileSteps(int index,int id){
+        if(!canContinue(id))return;
+        if(index>=profileTemplate.length()){
+            // Return to the results screen after the taught action sequence.
+            performGlobalAction(GLOBAL_ACTION_BACK);
+            handler.postDelayed(()->{
+                if(!canContinue(id))return;
+                profileCount++;
+                lastResult="Processed "+profileCount+" profiles";
+                showNotification(false);
+                searchNextProfile(id);
+            },1450);
+            return;
+        }
+        JSONObject action=profileTemplate.optJSONObject(index);
+        if(action==null){executeProfileSteps(index+1,id);return;}
+        // Stop rather than accidentally acting on the search page.
+        String type=action.optString("type","");
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null){finishSmart("Lost target screen; stopped.");return;}
+        CharSequence pkg=root.getPackageName();
+        if(pkg==null || !smartListPackage.equals(pkg.toString())){
+            finishSmart("Switched away from target app; stopped.");
+            return;
+        }
+        // The opener must actually navigate away from the results list.
+        // No blind actions when results have not changed.
+        long wait=Math.max(200,Math.min(3500,action.optLong("delay_ms",600)));
+        handler.postDelayed(()->{
+            if(!canContinue(id))return;
+            execute(action);
+            executed++;
+            handler.postDelayed(()->executeProfileSteps(index+1,id),550);
+        },wait);
+    }
+    private void finishSmart(String message) {
+        smartMode=false;
+        replaying=false;
+        runId++;
+        handler.removeCallbacksAndMessages(null);
+        removeNotification();
+        lastResult=message;
+    }
+
     private void execute(JSONObject a){
         String type=a.optString("type","");
         String pkg=a.optString("package","");
@@ -348,8 +576,8 @@ public class ReplayService extends AccessibilityService {
             PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification n=new Notification.Builder(this,CHANNEL)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentTitle(isRecording?"● BonnE is recording":"▶ BonnE is replaying")
-            .setContentText(isRecording?"Tap to return and save or discard.":("Executed "+executed+" actions."))
+            .setContentTitle(isRecording?"● BonnE is recording":(smartMode?"↻ BonnE next-profile loop":"▶ BonnE is replaying"))
+            .setContentText(isRecording?"Tap to return and save or discard.":(smartMode?"Profiles: "+profileCount+" • "+lastProfileKey:("Executed "+executed+" actions.")))
             .setContentIntent(opening).setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel,
                 isRecording?"Discard recording":"STOP playback",stopping)
