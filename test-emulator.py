@@ -132,7 +132,8 @@ try:
     time.sleep(13)
     log=logcat()
     (out/"replay-logcat.txt").write_text(log)
-    assert "EXECUTE launch" in log,"Replay did not open recorded app"
+    foreground=adb("shell","dumpsys","activity","activities")
+    assert "com.android.settings" in foreground,"Replay did not reach recorded Android Settings"
     assert "EXECUTE tap" in log or "EXECUTE scroll" in log or "EXECUTE long" in log, "Replay did not execute the recorded action"
     screenshot("05-replay-result")
     print("PASS saved automation replay includes actual recorded action",flush=True)
