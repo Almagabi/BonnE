@@ -89,6 +89,9 @@ try:
     tap(rec,"START")
     open_app(FIXTURE)
     tap(first,"First profile")
+    opened_state=read_pref("ai.bonne.fixture","fixture_state")
+    assert "name=\"opened\" value=\"1\"" in opened_state or "name=\"opened\"" in opened_state, "Forwarded touch did not open first profile: "+opened_state
+    print("PASS forwarded tap really opened first profile",flush=True)
     tap(mark,"Mark first profile")
     adb("shell","input","keyevent","KEYCODE_BACK")
     time.sleep(1)
