@@ -366,6 +366,14 @@ public class ReplayService extends AccessibilityService {
             int y=Integer.compare(a.y,b.y);
             return y!=0?y:Integer.compare(a.x,b.x);
         });
+        // A lone generic Button on a detail screen is NOT a list of profiles.
+        // Do not mistake the profile's action button for the next profile.
+        java.util.HashSet<String> available=new java.util.HashSet<>();
+        for(Candidate c:candidates)available.add(c.key);
+        if(available.size()<2) {
+            finishSmart("Results list not visible or profiles not distinguishable. Stopped safely.");
+            return;
+        }
         Candidate selected=null;
         for(Candidate c:candidates){
             if(!processedProfiles.contains(c.key)){
