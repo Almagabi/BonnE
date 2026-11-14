@@ -284,13 +284,28 @@ public class ReplayService extends AccessibilityService {
         long ms=Math.max(70,Math.min(1800,duration));
         GestureDescription gesture=new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(path,0,ms)).build();
-        try{
-            boolean accepted=dispatchGesture(gesture,new GestureResultCallback(){
-                @Override public void onCompleted(GestureDescription d){restoreOverlay();}
-                @Override public void onCancelled(GestureDescription d){restoreOverlay();}
-            },handler);
-            if(!accepted)restoreOverlay();
-        }catch(Exception e){restoreOverlay();}
+        // Inject AFTER the finger-up event has fully returned to Android's
+        // input dispatcher. Injecting synchronously inside onTouch often
+        // cancels or drops the forwarded tap.
+        handler.postDelayed(()->{
+            try{
+                boolean accepted=dispatchGesture(gesture,new GestureResultCallback(){
+                    @Override public void onCompleted(GestureDescription d){
+                        android.util.Log.i("BonnE","TOUCH FORWARDED completed");
+                        restoreOverlay();
+                    }
+                    @Override public void onCancelled(GestureDescription d){
+                        android.util.Log.w("BonnE","TOUCH FORWARDED cancelled");
+                        restoreOverlay();
+                    }
+                },handler);
+                android.util.Log.i("BonnE","TOUCH dispatch accepted="+accepted);
+                if(!accepted)restoreOverlay();
+            }catch(Exception e){
+                android.util.Log.w("BonnE","TOUCH forwarding failed",e);
+                restoreOverlay();
+            }
+        },85);
     }
     private void restoreOverlay(){
         forwardingTouch=false;
