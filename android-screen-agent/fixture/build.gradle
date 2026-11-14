@@ -1,0 +1,3 @@
+plugins { id 'com.android.application' }
+android { namespace 'ai.bonne.fixture'; compileSdk 35
+ defaultConfig { applicationId 'ai.bonne.fixture'; minSdk 30; targetSdk 32; versionCode 1; versionName '1' } }
