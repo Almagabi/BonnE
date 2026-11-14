@@ -263,15 +263,37 @@ public class ReplayService extends AccessibilityService {
         AccessibilityNodeInfo root=getRootInActiveWindow();
         if(root==null)return null;
         String id=a.optString("view_id","");
-        if(!id.isEmpty()){
-            try{
-                List<AccessibilityNodeInfo> nodes=root.findAccessibilityNodeInfosByViewId(id);
-                if(nodes!=null && !nodes.isEmpty())return nodes.get(0);
-            }catch(Exception ignored){}
-        }
         int w=Math.max(1,getResources().getDisplayMetrics().widthPixels);
         int h=Math.max(1,getResources().getDisplayMetrics().heightPixels);
-        return nearest(root,a.optInt("x",500)*w/1000,a.optInt("y",500)*h/1000,0);
+        int x=a.optInt("x",500)*w/1000, y=a.optInt("y",500)*h/1000;
+        String expectedText=a.optString("text","");
+        String expectedLabel=a.optString("label","");
+        if(!id.isEmpty()){
+            try{
+                List<AccessibilityNodeInfo> matches=root.findAccessibilityNodeInfosByViewId(id);
+                if(matches!=null && !matches.isEmpty()){
+                    AccessibilityNodeInfo best=null;
+                    long bestScore=Long.MAX_VALUE;
+                    for(AccessibilityNodeInfo n:matches) {
+                        Rect rect=new Rect();n.getBoundsInScreen(rect);
+                        long dx=rect.centerX()-x, dy=rect.centerY()-y;
+                        long score=dx*dx+dy*dy;
+                        if(!expectedText.isEmpty() && expectedText.equals(String.valueOf(n.getText())))score-=10000000;
+                        if(!expectedLabel.isEmpty() && expectedLabel.equals(String.valueOf(n.getContentDescription())))score-=10000000;
+                        if(score<bestScore){bestScore=score;best=n;}
+                    }
+                    if(best!=null)return best;
+                }
+            }catch(Exception ignored){}
+        }
+        if(!expectedText.isEmpty()){
+            try{
+                List<AccessibilityNodeInfo> matches=root.findAccessibilityNodeInfosByText(expectedText);
+                for(AccessibilityNodeInfo n:matches)
+                    if(expectedText.equals(String.valueOf(n.getText())))return n;
+            }catch(Exception ignored){}
+        }
+        return nearest(root,x,y,0);
     }
     private AccessibilityNodeInfo nearest(AccessibilityNodeInfo n,int x,int y,int depth){
         if(n==null || depth>24)return null;
