@@ -129,8 +129,7 @@ public class ReplayService extends AccessibilityService {
             if(gestureOverlay!=null)gestureOverlay.hide();
             return;
         }
-        if(pkg.startsWith("com.android.systemui") ||
-            pkg.contains("inputmethod") || pkg.contains("latininput")) return;
+        if(pkg.startsWith("com.android.systemui"))return;
         int kind=event.getEventType();
         if(pkg.contains("inputmethod") || pkg.contains("latininput")){
             if(gestureOverlay!=null)gestureOverlay.hide();
@@ -286,10 +285,11 @@ public class ReplayService extends AccessibilityService {
         GestureDescription gesture=new GestureDescription.Builder()
             .addStroke(new GestureDescription.StrokeDescription(path,0,ms)).build();
         try{
-            dispatchGesture(gesture,new GestureResultCallback(){
+            boolean accepted=dispatchGesture(gesture,new GestureResultCallback(){
                 @Override public void onCompleted(GestureDescription d){restoreOverlay();}
                 @Override public void onCancelled(GestureDescription d){restoreOverlay();}
             },handler);
+            if(!accepted)restoreOverlay();
         }catch(Exception e){restoreOverlay();}
     }
     private void restoreOverlay(){
