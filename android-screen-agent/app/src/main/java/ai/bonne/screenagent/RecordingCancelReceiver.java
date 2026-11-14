@@ -5,10 +5,12 @@ import android.content.Context;
 import android.content.Intent;
 
 public class RecordingCancelReceiver extends BroadcastReceiver {
-    @Override public void onReceive(Context context, Intent intent) {
-        if(intent!=null && "ai.bonne.screenagent.CANCEL_RECORDING".equals(intent.getAction())) {
-            ReplayService service=ReplayService.active;
-            if(service!=null) service.cancelRecording();
-        }
+    @Override public void onReceive(Context context,Intent intent){
+        if(intent==null)return;
+        ReplayService service=ReplayService.active;
+        if(service==null)return;
+        String action=intent.getAction();
+        if("ai.bonne.screenagent.CANCEL_RECORDING".equals(action))service.cancelRecording();
+        if("ai.bonne.screenagent.STOP_REPLAY".equals(action))service.stopReplay();
     }
 }
