@@ -62,7 +62,7 @@ def package_prefs():
     if data is None:return []
     return json.loads(data.text)
 def logcat():
-    return adb("logcat","-d","-t","5000",timeout=60)
+    return adb("logcat","-d","-s","BonnE:I","*:S",timeout=60)
 def return_app():
     adb("shell","am","start","-n","ai.bonne.screenagent/.MainActivity")
     time.sleep(1.5)
@@ -149,8 +149,9 @@ try:
     dialogButtons=controls(dlg,["RUN","CANCEL"])
     assert "RUN" in dialogButtons,"Loop count dialog did not open"
     enable()
+    adb("logcat","-c")
     tap(dialogButtons["RUN"],"Start 3-repeat loop")
-    time.sleep(27)
+    time.sleep(37)
     log=logcat()
     (out/"loop-logcat.txt").write_text(log)
     n=len(re.findall(r"BonnE.*EXECUTE tap",log))
