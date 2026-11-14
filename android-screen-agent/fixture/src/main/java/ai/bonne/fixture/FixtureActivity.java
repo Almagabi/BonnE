@@ -44,6 +44,7 @@ public class FixtureActivity extends Activity {
     }
     private void showProfile(int i) {
         current=i;
+        getSharedPreferences("fixture_state",MODE_PRIVATE).edit().putInt("opened",i).commit();
         LinearLayout layout=new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(25,70,25,25);
