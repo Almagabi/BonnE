@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
         space(root,18);
         root.addView(text("SAVED AUTOMATIONS",20,true,Color.WHITE));
         space(root,7);
-        root.addView(text("Tap Run any time. Loop repeats the task. Use Stop when necessary.",13,false,0xffb0bdd0));
+        root.addView(text("Run once, repeat the SAME task, or visit DIFFERENT profiles until Stop.",13,false,0xffb0bdd0));
         space(root,10);
         tasks=new LinearLayout(this);
         tasks.setOrientation(LinearLayout.VERTICAL);
@@ -128,6 +128,8 @@ public class MainActivity extends Activity {
             refreshState();
         });
         space(root,12);
+        root.addView(text("NEXT PROFILES: Start recording while the search results are visible. Open one profile, do the desired action, go Back to results, and Stop & Save. Choose NEXT PROFILES and return to results within 5 seconds. BonnE selects different accessible profiles until stopped or exhausted.", 13,false,0xffc9d8ee));
+        space(root,10);
         root.addView(text("Recordings stay in this app's private storage, even after closing it. "+
             "An unfinished recording can be recovered as a draft. "+
             "Uninstalling or clearing app data deletes stored automations. "+
@@ -172,7 +174,9 @@ public class MainActivity extends Activity {
             LinearLayout top=new LinearLayout(this);top.setOrientation(LinearLayout.HORIZONTAL);
             card.addView(top);
             smallButton(top,"▶ RUN",0xff286ab8,()->runTask(id,1));
-            smallButton(top,"↻ LOOP",0xff317e6b,()->chooseLoop(id));
+            smallButton(top,"↻ REPEAT",0xff59667c,()->chooseLoop(id));
+            space(card,8);
+            button(card,"∞  NEXT PROFILES • UNTIL STOP",0xff168469,()->runNextProfiles(id));
             space(card,7);
             LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.HORIZONTAL);
             card.addView(bottom);
@@ -200,6 +204,20 @@ public class MainActivity extends Activity {
         s.play(steps,repeats);
         message(repeats==1?"Playing "+item.optString("name"):
             ("Looping "+item.optString("name")+" ("+(repeats==0?"until stopped":repeats+" times")+")"));
+        refreshState();
+    }
+
+    private void runNextProfiles(String id) {
+        ReplayService service=ReplayService.active;
+        if(service==null){message("Enable Accessibility first.");return;}
+        if(service.isRecording()){message("Stop and save the recording first.");return;}
+        JSONObject item=find(id);
+        JSONArray steps=item==null?null:item.optJSONArray("steps");
+        if(steps==null || !service.startSmartProfiles(steps)){
+            message("Teach one profile from results, perform its action, return and save.");
+            return;
+        }
+        message("Switch to your RESULTS PAGE within 5 seconds. Stop anytime.");
         refreshState();
     }
     private void chooseLoop(String id){
@@ -279,6 +297,7 @@ public class MainActivity extends Activity {
         ReplayService s=ReplayService.active;
         if(s==null)status.setText("Accessibility OFF. Enable it to record and run.");
         else if(s.isRecording())status.setText("🔴 RECORDING  •  "+s.count()+" steps captured\nUse Stop & Save or Cancel.");
+        else if(s.isSmartLoop())status.setText("∞ NEXT PROFILES  •  "+s.profilesProcessed()+" processed\nSwitch back to the results page. Stop anytime.");
         else if(s.isReplaying())status.setText("▶ RUNNING  •  "+s.executed()+" actions executed\nUse Stop Playback to end loops.");
         else status.setText("READY  •  "+s.lastResult());
         JSONArray draft=WorkflowStore.draft(this);
