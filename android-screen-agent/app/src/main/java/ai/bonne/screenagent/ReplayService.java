@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.PointF;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -49,10 +50,14 @@ public class ReplayService extends AccessibilityService {
     private String smartListPackage="";
     private String lastProfileKey="";
     private final Map<String,JSONObject> visibleClickTargets=new HashMap<>();
+    private GestureRecordingOverlay gestureOverlay;
+    private boolean forwardingTouch=false;
+    private long lastForwardedTouchAt=0;
 
     @Override public void onServiceConnected() {
         super.onServiceConnected();
         active=this;
+        gestureOverlay=new GestureRecordingOverlay(this);
         AccessibilityServiceInfo info=getServiceInfo();
         info.eventTypes=AccessibilityEvent.TYPE_VIEW_CLICKED|AccessibilityEvent.TYPE_VIEW_LONG_CLICKED|
                 AccessibilityEvent.TYPE_VIEW_SCROLLED|AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED|
@@ -79,6 +84,7 @@ public class ReplayService extends AccessibilityService {
         visibleClickTargets.clear();
         lastTime=SystemClock.uptimeMillis();
         recording=true;
+        forwardingTouch=false;
         WorkflowStore.saveDraft(this,recorded);
         showNotification(true);
         lastResult="Recording";
@@ -87,6 +93,7 @@ public class ReplayService extends AccessibilityService {
         if(!recording)return new JSONArray();
         flushText();
         recording=false;
+        if(gestureOverlay!=null)gestureOverlay.hide();
         removeNotification();
         WorkflowStore.saveDraft(this,recorded);
         lastResult="Captured "+recorded.length()+" steps";
@@ -94,6 +101,7 @@ public class ReplayService extends AccessibilityService {
     }
     public void cancelRecording(){
         recording=false;
+        if(gestureOverlay!=null)gestureOverlay.hide();
         if(pendingText!=null)handler.removeCallbacks(pendingText);
         pendingText=null;latestText=null;
         recorded=new JSONArray();firstPackage="";
@@ -108,6 +116,7 @@ public class ReplayService extends AccessibilityService {
             WorkflowStore.saveDraft(this,recorded);
             lastResult="Recording interrupted; draft preserved";
         }
+        if(gestureOverlay!=null)gestureOverlay.hide();
         removeNotification();
     }
 
@@ -116,9 +125,22 @@ public class ReplayService extends AccessibilityService {
         CharSequence srcPkg=event.getPackageName();
         if(srcPkg==null)return;
         String pkg=srcPkg.toString();
-        if(pkg.equals(getPackageName()) || pkg.startsWith("com.android.systemui") ||
+        if(pkg.equals(getPackageName())){
+            if(gestureOverlay!=null)gestureOverlay.hide();
+            return;
+        }
+        if(pkg.startsWith("com.android.systemui") ||
             pkg.contains("inputmethod") || pkg.contains("latininput")) return;
         int kind=event.getEventType();
+        if(pkg.contains("inputmethod") || pkg.contains("latininput")){
+            if(gestureOverlay!=null)gestureOverlay.hide();
+            return;
+        }
+        if(gestureOverlay!=null && !forwardingTouch)gestureOverlay.show();
+        if((kind==AccessibilityEvent.TYPE_VIEW_CLICKED ||
+            kind==AccessibilityEvent.TYPE_VIEW_SCROLLED ||
+            kind==AccessibilityEvent.TYPE_VIEW_LONG_CLICKED) &&
+            SystemClock.uptimeMillis()-lastForwardedTouchAt<1000) return;
         // Ignore launcher gestures; capture the target's first displayed window instead.
         if(firstPackage.isEmpty() && kind==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
            !isLauncher(pkg)) {
@@ -215,6 +237,73 @@ public class ReplayService extends AccessibilityService {
         }
         android.util.Log.w("BonnE","Unresolved click without source in "+pkg);
     }
+
+    // Finger coordinates are captured before the view is destroyed by
+    // navigation, then forwarded to the actual app using dispatchGesture.
+    public void onCapturedTouch(ArrayList<PointF> track,long duration) {
+        if(track==null || track.isEmpty() || gestureOverlay==null)return;
+        PointF first=track.get(0), last=track.get(track.size()-1);
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        String pkg=root==null?"":String.valueOf(root.getPackageName());
+        boolean target=!pkg.isEmpty() && !pkg.equals(getPackageName()) &&
+            !pkg.startsWith("com.android.systemui") && !isLauncher(pkg);
+        if(recording && target){
+            try{
+                int w=Math.max(1,getResources().getDisplayMetrics().widthPixels);
+                int h=Math.max(1,getResources().getDisplayMetrics().heightPixels);
+                AccessibilityNodeInfo touchNode=nearest(root,(int)first.x,(int)first.y,0);
+                JSONObject step=touchNode==null?new JSONObject():base(touchNode,pkg);
+                step.put("package",pkg);
+                step.put("x",Math.max(0,Math.min(1000,(int)(first.x*1000/w))));
+                step.put("y",Math.max(0,Math.min(1000,(int)(first.y*1000/h))));
+                if(touchNode!=null)touchNode.recycle();
+                float dist=(float)Math.hypot(last.x-first.x,last.y-first.y);
+                if(dist>35) {
+                    step.put("type","swipe");
+                    step.put("x2",Math.max(0,Math.min(1000,(int)(last.x*1000/w))));
+                    step.put("y2",Math.max(0,Math.min(1000,(int)(last.y*1000/h))));
+                    step.put("duration_ms",duration);
+                }else step.put("type",duration>600?"long":"tap");
+                flushText();
+                if(firstPackage.isEmpty()){
+                    firstPackage=pkg;
+                    JSONObject launch=new JSONObject();
+                    launch.put("type","launch");launch.put("package",pkg);
+                    append(launch);
+                }
+                append(step);
+                android.util.Log.i("BonnE","CAPTURED TOUCH "+step.optString("type")+" "+step.optString("text"));
+            }catch(Exception e){android.util.Log.w("BonnE","Couldn't record gesture",e);}
+        }
+        if(root!=null)root.recycle();
+        gestureOverlay.hide();
+        forwardingTouch=true;
+        lastForwardedTouchAt=SystemClock.uptimeMillis();
+        Path path=new Path();
+        path.moveTo(first.x,first.y);
+        for(int i=1;i<track.size();i++)path.lineTo(track.get(i).x,track.get(i).y);
+        long ms=Math.max(70,Math.min(1800,duration));
+        GestureDescription gesture=new GestureDescription.Builder()
+            .addStroke(new GestureDescription.StrokeDescription(path,0,ms)).build();
+        try{
+            dispatchGesture(gesture,new GestureResultCallback(){
+                @Override public void onCompleted(GestureDescription d){restoreOverlay();}
+                @Override public void onCancelled(GestureDescription d){restoreOverlay();}
+            },handler);
+        }catch(Exception e){restoreOverlay();}
+    }
+    private void restoreOverlay(){
+        forwardingTouch=false;
+        handler.postDelayed(()->{
+            if(!recording || gestureOverlay==null)return;
+            AccessibilityNodeInfo root=getRootInActiveWindow();
+            String pkg=root==null?"":String.valueOf(root.getPackageName());
+            if(!pkg.equals(getPackageName()) &&
+                !pkg.startsWith("com.android.systemui") &&
+                !pkg.contains("inputmethod"))gestureOverlay.show();
+        },120);
+    }
+
     private boolean isLauncher(String pkg) {
         return pkg.contains("launcher") || pkg.equals("com.google.android.apps.nexuslauncher");
     }
@@ -548,6 +637,16 @@ public class ReplayService extends AccessibilityService {
             }
             if(!worked && (type.equals("tap") || type.equals("long")))tap(a,type.equals("long")?850:75);
             if(!worked && type.equals("scroll"))swipe(a);
+            if(type.equals("swipe")) {
+                int w=getResources().getDisplayMetrics().widthPixels,
+                    h=getResources().getDisplayMetrics().heightPixels;
+                Path path=new Path();
+                path.moveTo(a.optInt("x",500)*w/1000f,a.optInt("y",700)*h/1000f);
+                path.lineTo(a.optInt("x2",500)*w/1000f,a.optInt("y2",300)*h/1000f);
+                dispatchGesture(new GestureDescription.Builder()
+                    .addStroke(new GestureDescription.StrokeDescription(path,0,
+                        Math.max(100,Math.min(1800,a.optLong("duration_ms",400))))).build(),null,null);
+            }
             if(!worked && type.equals("text"))android.util.Log.w("BonnE","Could not locate editable text field");
         }catch(Exception e){android.util.Log.e("BonnE","Action failed "+type,e);}
     }
@@ -654,6 +753,7 @@ public class ReplayService extends AccessibilityService {
     @Override public void onInterrupt(){interruptRecording();stopReplay();}
     @Override public void onDestroy(){
         interruptRecording();stopReplay();
+        if(gestureOverlay!=null)gestureOverlay.destroy();
         if(active==this)active=null;
         super.onDestroy();
     }
