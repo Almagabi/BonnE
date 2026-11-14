@@ -145,10 +145,10 @@ try:
     time.sleep(1.0)
     # Inspect dialog only after a controlled service re-enable.
     dlg=ui()
-    dialogButtons=controls(dlg,["Run","Cancel"])
-    assert "Run" in dialogButtons,"Loop count dialog did not open"
+    dialogButtons=controls(dlg,["RUN","CANCEL"])
+    assert "RUN" in dialogButtons,"Loop count dialog did not open"
     enable()
-    tap(dialogButtons["Run"],"Start 3-repeat loop")
+    tap(dialogButtons["RUN"],"Start 3-repeat loop")
     time.sleep(27)
     log=logcat()
     (out/"loop-logcat.txt").write_text(log)
