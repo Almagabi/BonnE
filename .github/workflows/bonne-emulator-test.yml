@@ -6,6 +6,7 @@ on:
     paths:
       - 'android-screen-agent/**'
       - 'test-emulator.py'
+      - 'test-smart.py'
       - 'test-emulator.sh'
       - '.github/workflows/bonne-emulator-test.yml'
 jobs:
